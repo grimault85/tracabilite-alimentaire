@@ -36,6 +36,16 @@ function creerFenetre() {
   } else {
     fenetre.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
+
+  /* Caméra : Electron refuse les permissions média par défaut.
+     On n'autorise que "media", rien d'autre (ni micro seul, ni
+     géolocalisation, ni notifications). */
+  const session = fenetre.webContents.session;
+  session.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === "media");
+  });
+  session.setPermissionCheckHandler((_wc, permission) => permission === "media");
+
   return fenetre;
 }
 

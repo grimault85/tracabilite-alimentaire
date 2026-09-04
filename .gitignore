@@ -1,5 +1,8 @@
 node_modules/
 dist/
+dev-dist/
 release/
+.env
 *.log
 .DS_Store
+Thumbs.db

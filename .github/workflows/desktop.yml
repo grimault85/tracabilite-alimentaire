@@ -1,4 +1,4 @@
-name: Build et publication
+name: Application desktop
 
 on:
   push:
@@ -7,6 +7,10 @@ on:
 
 permissions:
   contents: write
+
+defaults:
+  run:
+    working-directory: desktop
 
 jobs:
   build:
@@ -26,8 +30,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
+          cache-dependency-path: desktop/package-lock.json
 
       - name: Installer les dépendances
         run: npm ci
@@ -36,8 +41,8 @@ jobs:
         run: npm run ${{ matrix.commande }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Pas de signature pour l'instant : les installeurs déclencheront
-          # un avertissement SmartScreen (Windows) et Gatekeeper (macOS).
+          # Pas de signature : les installeurs déclencheront un
+          # avertissement SmartScreen (Windows) et Gatekeeper (macOS).
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Publier les artefacts
@@ -45,7 +50,7 @@ jobs:
         with:
           name: installeurs-${{ matrix.os }}
           path: |
-            release/*.exe
-            release/*.dmg
-            release/*.yml
+            desktop/release/*.exe
+            desktop/release/*.dmg
+            desktop/release/*.yml
           if-no-files-found: warn

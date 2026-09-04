@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { CSS } from "./styles.js";
 
 /* =====================================================================
@@ -136,6 +136,133 @@ function VueAlertes({ etiquettes, onClic }) {
   );
 }
 
+/* ------------------- Caméra -------------------
+   Prise de vue directe. Sur un poste fixe la webcam est frontale et
+   médiocre ; sur une tablette Windows, le sélecteur permet de basculer
+   sur la caméra arrière, qui est la seule utilisable pour une étiquette.
+   ---------------------------------------------- */
+
+function messageCamera(e) {
+  switch (e.name) {
+    case "NotAllowedError":
+      return "Accès à la caméra refusé. Autorise-le dans les réglages de confidentialité de Windows, puis relance l'application.";
+    case "NotFoundError":
+    case "OverconstrainedError":
+      return "Aucune caméra détectée sur ce poste. Utilise l'import de fichier.";
+    case "NotReadableError":
+      return "La caméra est déjà utilisée par une autre application. Ferme-la et réessaie.";
+    default:
+      return `Caméra indisponible (${e.name}).`;
+  }
+}
+
+function Camera({ onCapture, onAnnuler }) {
+  const video = useRef(null);
+  const flux = useRef(null);
+  const [appareils, setAppareils] = useState([]);
+  const [idChoisi, setIdChoisi] = useState(null);
+  const [erreur, setErreur] = useState(null);
+  const [pret, setPret] = useState(false);
+
+  const arreter = useCallback(() => {
+    if (flux.current) {
+      flux.current.getTracks().forEach((t) => t.stop());
+      flux.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      setPret(false); setErreur(null);
+      arreter();
+      try {
+        const video_ = idChoisi
+          ? { deviceId: { exact: idChoisi }, width: { ideal: 1920 } }
+          : { facingMode: { ideal: "environment" }, width: { ideal: 1920 } };
+        const s = await navigator.mediaDevices.getUserMedia({ video: video_, audio: false });
+        if (annule) { s.getTracks().forEach((t) => t.stop()); return; }
+        flux.current = s;
+        if (video.current) {
+          video.current.srcObject = s;
+          await video.current.play().catch(() => {});
+        }
+        setPret(true);
+        // Les libellés ne sont lisibles qu'une fois la permission accordée
+        const liste = (await navigator.mediaDevices.enumerateDevices())
+          .filter((d) => d.kind === "videoinput");
+        if (!annule) setAppareils(liste);
+      } catch (e) {
+        if (!annule) setErreur(messageCamera(e));
+      }
+    })();
+    return () => { annule = true; arreter(); };
+  }, [idChoisi, arreter]);
+
+  const capturer = useCallback(() => {
+    const v = video.current;
+    if (!v || !v.videoWidth) return;
+    const c = document.createElement("canvas");
+    c.width = v.videoWidth;
+    c.height = v.videoHeight;
+    c.getContext("2d").drawImage(v, 0, 0);
+    const url = c.toDataURL("image/jpeg", 0.92);
+    arreter();
+    onCapture(url);
+  }, [arreter, onCapture]);
+
+  useEffect(() => {
+    function touche(ev) {
+      if (ev.key === "Escape") { arreter(); onAnnuler(); }
+      if ((ev.key === " " || ev.key === "Enter") && pret) { ev.preventDefault(); capturer(); }
+    }
+    window.addEventListener("keydown", touche);
+    return () => window.removeEventListener("keydown", touche);
+  }, [pret, capturer, arreter, onAnnuler]);
+
+  if (erreur) {
+    return (
+      <div>
+        <div className="avis avis-erreur">{erreur}</div>
+        <button className="btn btn-fant" onClick={onAnnuler}>Revenir à l'import de fichier</button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="camera">
+        <video ref={video} className="camera-video" playsInline muted />
+        <div className="camera-viseur" aria-hidden="true" />
+      </div>
+
+      {appareils.length > 1 && (
+        <div className="champ" style={{ marginTop:14 }}>
+          <label className="label" htmlFor="cam-choix">Caméra</label>
+          <select id="cam-choix" className="input"
+            value={idChoisi || appareils[0]?.deviceId || ""}
+            onChange={(e)=>setIdChoisi(e.target.value)}>
+            {appareils.map((d, i) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || `Caméra ${i + 1}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <button className="btn btn-valider" onClick={capturer} disabled={!pret}
+        style={{ marginTop:14 }}>
+        {pret ? "Prendre la photo" : "Démarrage de la caméra…"}
+      </button>
+      <p className="aide" style={{ textAlign:"center" }}>
+        Espace ou Entrée pour déclencher · Échap pour annuler
+      </p>
+      <button className="plier" onClick={()=>{ arreter(); onAnnuler(); }}>Annuler</button>
+    </div>
+  );
+}
+
 /* ------------------- Scanner ------------------- */
 
 function VueScanner({ onEnregistre, cleDefinie }) {
@@ -225,6 +352,14 @@ function VueScanner({ onEnregistre, cleDefinie }) {
 
       {etape === "attente" && (
         <div>
+          <button className="cible cible-camera" onClick={()=>setEtape("camera")}>
+            <span className="cible-icone">◉</span>
+            <span className="cible-titre">Prendre une photo</span>
+            <span className="cible-aide">Caméra du poste ou de la tablette</span>
+          </button>
+
+          <div className="separateur"><span>ou</span></div>
+
           <div className="cible" data-survol={survol}
             onClick={choisirFichier}
             onDragOver={(ev)=>{ev.preventDefault();setSurvol(true);}}
@@ -234,11 +369,15 @@ function VueScanner({ onEnregistre, cleDefinie }) {
               if (f?.type.startsWith("image/")) depuisFichier(f).then(analyser).catch((e)=>setErreur(e.message));
             }}>
             <span className="cible-icone">▣</span>
-            <span className="cible-titre">Choisir une photo d'étiquette</span>
+            <span className="cible-titre">Importer une photo</span>
             <span className="cible-aide">Glisse un fichier ici, ou colle une image avec Ctrl+V</span>
           </div>
           {erreur && <div className="avis avis-erreur" style={{ marginTop:16 }}>{erreur}</div>}
         </div>
+      )}
+
+      {etape === "camera" && (
+        <Camera onCapture={analyser} onAnnuler={()=>setEtape("attente")} />
       )}
 
       {etape === "analyse" && (
@@ -319,10 +458,15 @@ function VueScanner({ onEnregistre, cleDefinie }) {
           <div className="avis avis-ok">
             Enregistré. {dernier?.produit ? dernier.produit + " — " : ""}DLC {dateFR(dernier?.dlc)}.
           </div>
+          <button className="cible cible-camera" onClick={()=>setEtape("camera")}>
+            <span className="cible-icone">◉</span>
+            <span className="cible-titre">Étiquette suivante</span>
+            <span className="cible-aide">Enchaîne sans repasser par l'accueil</span>
+          </button>
+          <div className="separateur"><span>ou</span></div>
           <div className="cible" onClick={choisirFichier}>
             <span className="cible-icone">▣</span>
-            <span className="cible-titre">Photo suivante</span>
-            <span className="cible-aide">Enchaîne sans repasser par l'accueil</span>
+            <span className="cible-titre">Importer une photo</span>
           </div>
           <button className="plier" onClick={recommencer}>Terminer</button>
         </div>

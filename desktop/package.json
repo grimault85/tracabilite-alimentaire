@@ -1,6 +1,6 @@
 {
   "name": "tracabilite-dlc",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Traçabilité DLC — archivage des étiquettes fournisseurs",
   "author": "La Carte — Conseil Restaurant",
   "main": "electron/main.js",
@@ -42,7 +42,12 @@
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "Tracabilite-DLC-${version}-win-${arch}.${ext}"
     },
@@ -52,7 +57,13 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "artifactName": "Tracabilite-DLC-${version}-mac-${arch}.${ext}",
       "category": "public.app-category.business"

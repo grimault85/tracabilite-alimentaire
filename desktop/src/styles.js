@@ -101,6 +101,22 @@ html, body, #racine { height: 100%; margin: 0; }
 .dlc-jours { display:block; font-size:13px; font-weight:600; margin-top:4px; }
 .dlc-crayon { font-weight:400; opacity:.6; }
 
+/* Caméra */
+.camera { position:relative; background:#101A19; border-radius:4px; overflow:hidden; aspect-ratio:4/3; }
+.camera-video { width:100%; height:100%; object-fit:cover; display:block; }
+.camera-viseur {
+  position:absolute; inset:11% 8%; border:2px solid rgba(255,255,255,.72);
+  border-radius:3px; pointer-events:none;
+  box-shadow:0 0 0 2000px rgba(16,26,25,.28);
+}
+.cible-camera {
+  width:100%; font-family:inherit; color:var(--encre);
+  border-style:solid; border-color:var(--petrole); background:var(--carte);
+}
+.cible-camera:hover { background:#F3F7F6; }
+.separateur { display:flex; align-items:center; gap:12px; margin:14px 0; color:var(--sourd); font-size:12px; }
+.separateur::before, .separateur::after { content:""; flex:1; height:1px; background:var(--trait); }
+
 /* Formulaire */
 .champ { margin-bottom:15px; }
 .label { display:block; font-size:10px; letter-spacing:.14em; text-transform:uppercase; font-weight:600; color:var(--sourd); margin-bottom:5px; }
