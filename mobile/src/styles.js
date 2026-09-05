@@ -86,6 +86,51 @@ html, body, #racine { margin: 0; }
 .dlc-jours { display:block; font-size:13px; font-weight:600; margin-top:4px; }
 .dlc-crayon { font-weight:400; opacity:.6; }
 
+/* Rattachement au bon de livraison */
+.lien-bl { font-size:11px; color:var(--petrole); margin-top:4px; font-weight:600; }
+.chip {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  background:#F2F6F7; border:1px solid var(--trait); border-radius:3px;
+  padding:11px 13px; font-size:13px; margin-bottom:14px; color:var(--petrole); font-weight:600;
+}
+.chip button { background:none; border:none; font-size:17px; color:var(--sourd); cursor:pointer; padding:0 6px; line-height:1; }
+.match { border:1px solid var(--petrole); border-radius:3px; background:#F2F6F7; padding:14px; margin-bottom:14px; }
+.match-eyebrow { font-size:10px; letter-spacing:.14em; text-transform:uppercase; font-weight:600; color:var(--petrole); margin:0 0 8px; }
+.match-choix {
+  display:block; width:100%; text-align:left; font-family:inherit; background:var(--carte);
+  border:1px solid var(--trait); border-radius:3px; padding:12px 13px; margin-top:8px;
+  cursor:pointer; color:var(--encre);
+}
+.match-nom { display:block; font-size:14px; font-weight:600; }
+.match-meta { display:block; font-size:12px; color:var(--sourd); margin-top:3px; }
+
+/* Bons de livraison */
+.carte-bl {
+  display:block; width:calc(100% - 36px); margin:0 18px 10px; text-align:left;
+  font-family:inherit; background:var(--carte); border:1px solid var(--trait);
+  border-radius:3px; padding:15px; cursor:pointer; color:var(--encre);
+}
+.carte-bl:active { background:#F7F9F8; }
+.bl-four { font-size:16px; font-weight:600; }
+.bl-meta { font-size:12px; color:var(--sourd); margin-top:4px; }
+.bl-pied { display:flex; justify-content:space-between; margin-top:11px; padding-top:11px; border-top:1px solid var(--papier); font-size:12px; }
+
+.entete-bl { background:var(--carte); border:1px solid var(--trait); border-radius:3px; padding:15px; margin-bottom:6px; }
+.entete-four { font-size:17px; font-weight:600; }
+.entete-meta { font-size:12px; color:var(--sourd); margin-top:5px; }
+.entete-pages { font-size:12px; color:#6B5606; background:#FDF4E0; border-radius:2px; padding:8px 10px; margin-top:10px; line-height:1.45; }
+
+.ligne { display:flex; align-items:flex-start; gap:11px; padding:11px 18px; border-bottom:1px solid var(--trait); background:var(--carte); }
+.ligne-pastille { flex:0 0 8px; height:8px; border-radius:4px; margin-top:6px; }
+.ligne-corps { flex:1; min-width:0; }
+.ligne-nom { font-size:13px; font-weight:600; line-height:1.35; }
+.ligne-meta { font-size:11px; color:var(--sourd); margin-top:3px; }
+.ligne-etat { font-size:10px; letter-spacing:.1em; text-transform:uppercase; font-weight:600; flex:0 0 auto; padding-top:2px; }
+
+.retour { background:none; border:none; padding:0; margin-bottom:14px; color:var(--sourd); font-size:13px; font-family:inherit; cursor:pointer; }
+.encart-bl { margin-top:16px; padding:13px; background:#F2F6F7; border:1px solid var(--trait); border-radius:3px; }
+.aide { font-size:12px; color:var(--sourd); line-height:1.5; margin:6px 0 0; }
+
 /* Formulaire — 16px minimum, sinon le navigateur zoome à la saisie */
 .champ { margin-bottom:14px; }
 .label { display:block; font-size:10px; letter-spacing:.14em; text-transform:uppercase; font-weight:600; color:var(--sourd); margin-bottom:5px; }

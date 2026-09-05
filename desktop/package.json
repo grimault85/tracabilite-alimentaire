@@ -3,10 +3,6 @@
   "version": "0.4.1",
   "description": "Traçabilité DLC — archivage des étiquettes fournisseurs",
   "author": "La Carte — Conseil Restaurant",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/grimault85/tracabilite-alimentaire.git"
-  },
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -41,8 +37,6 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "grimault85",
-        "repo": "tracabilite-alimentaire",
         "releaseType": "release"
       }
     ],
