@@ -2,12 +2,10 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { CSS } from "./styles.js";
 import {
   listerEtiquettes, enregistrerEtiquette, mettreEnAttente, listerAttente,
-  photoDe, demanderPersistance, listerLivraisons, enregistrerLivraison,
-  ajouterLignes, supprimerLivraison, candidatsParGtin,
+  photoDe, demanderPersistance, espace,
 } from "./stockage.js";
 import {
-  lireEtiquette, lireBonLivraison, compresser, compresserBl,
-  depuisFichier, traiterAttente, configuree,
+  lireEtiquette, compresser, depuisFichier, traiterAttente, configuree,
 } from "./extraction.js";
 
 /* ------------------- Dates ------------------- */
@@ -30,7 +28,6 @@ function statutDe(dlc) {
 const COULEURS = { perime:"#A32017", aujourdhui:"#D4610A", bientot:"#9A7B0A", ok:"#24705A", inconnu:"#5C6B69" };
 const dateFR = (s) => { if (!s) return "—"; const [a,m,j] = s.split("-"); return `${j}.${m}.${a.slice(2)}`; };
 const dateLongue = (s) => s ? new Date(s+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"}) : "—";
-const dateCourte = (s) => s ? new Date(s+"T00:00:00").toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit"}) : "—";
 
 function badgeJours(dlc) {
   const j = joursRestants(dlc);
@@ -40,21 +37,7 @@ function badgeJours(dlc) {
   return { haut:`${j}`, bas: j > 1 ? "jours" : "jour" };
 }
 
-/* ------------------- Champ photo ------------------- */
-
-function ChampPhoto({ titre, aide, onFichier, icone = "◉" }) {
-  return (
-    <label className="cible">
-      <input className="cible-input" type="file" accept="image/*" capture="environment"
-        onChange={(ev) => { const f = ev.target.files?.[0]; if (f) onFichier(f); ev.target.value = ""; }} />
-      <span className="cible-icone">{icone}</span>
-      <span className="cible-titre">{titre}</span>
-      {aide && <span className="cible-aide">{aide}</span>}
-    </label>
-  );
-}
-
-/* ------------------- Carte étiquette ------------------- */
+/* ------------------- Carte ------------------- */
 
 function CarteEtiquette({ e, onClic }) {
   const st = statutDe(e.dlc);
@@ -75,7 +58,6 @@ function CarteEtiquette({ e, onClic }) {
           {e.marque || "Marque inconnue"} · Lot <span className="mono">{e.lot || "—"}</span>
         </div>
         <div className="etiq-dlc mono" style={{ color: COULEURS[st] }}>DLC {dateFR(e.dlc)}</div>
-        {e.fournisseur && <div className="lien-bl">↳ {e.fournisseur}</div>}
       </div>
     </button>
   );
@@ -129,39 +111,27 @@ function VueAlertes({ etiquettes, onClic }) {
   );
 }
 
-/* ------------------- Scanner une étiquette ------------------- */
+/* ------------------- Scanner ------------------- */
 
 function VueScanner({ onEnregistre }) {
   const [etape, setEtape] = useState("attente");
   const [apercu, setApercu] = useState(null);
   const [blob, setBlob] = useState(null);
-  const [avis, setAvis] = useState(null);
+  const [avis, setAvis] = useState(null);           // { type, texte }
   const [confiance, setConfiance] = useState(null);
   const [editDlc, setEditDlc] = useState(false);
   const [deplie, setDeplie] = useState(false);
   const [dernier, setDernier] = useState(null);
   const [horsLigne, setHorsLigne] = useState(false);
-  const [candidats, setCandidats] = useState([]);
-  const [rattache, setRattache] = useState(null);
   const [form, setForm] = useState({ produit:"", marque:"", gtin:"", lot:"", dlc:"" });
+  const inputRef = useRef(null);
 
   const maj = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  /* Un seul candidat : rattaché d'office, le bandeau reste visible et se
-     retire d'un tap. Plusieurs : on demande, sinon on rattache tôt ou
-     tard au mauvais bon de livraison. */
-  const chercherRattachement = useCallback(async (gtin) => {
-    const liste = await candidatsParGtin(gtin);
-    setCandidats(liste);
-    setRattache(liste.length === 1 ? liste[0] : null);
-  }, []);
-
-  const analyser = useCallback(async (fichier) => {
+  const analyser = useCallback(async (dataUrl) => {
     setAvis(null); setEditDlc(false); setDeplie(false); setHorsLigne(false);
-    setCandidats([]); setRattache(null);
     setEtape("analyse");
     try {
-      const dataUrl = await depuisFichier(fichier);
       const { blob: b, base64 } = await compresser(dataUrl);
       setApercu(URL.createObjectURL(b));
       setBlob(b);
@@ -169,7 +139,6 @@ function VueScanner({ onEnregistre }) {
         const d = await lireEtiquette(base64);
         setForm({ produit:d.produit, marque:d.marque, gtin:d.gtin, lot:d.lot, dlc:d.dlc });
         setConfiance(d.confiance);
-        if (d.gtin) await chercherRattachement(d.gtin);
         if (d.confiance != null && d.confiance < 0.7) {
           setAvis({ type:"attention", texte:"Étiquette difficile à lire. Vérifie bien la date." });
         }
@@ -183,16 +152,12 @@ function VueScanner({ onEnregistre }) {
       setAvis({ type:"erreur", texte:e.message });
       setEtape("attente");
     }
-  }, [chercherRattachement]);
+  }, []);
 
   async function enregistrer() {
     const donnees = {
       ...form,
-      fournisseur: rattache ? rattache.bl.fournisseur : null,
-      produit: form.produit || (rattache ? rattache.ligne.designation : ""),
-      ligneBlId: rattache ? rattache.ligne.id : null,
-      livraisonId: rattache ? rattache.bl.id : null,
-      rattachement: rattache ? "gtin" : "aucun",
+      fournisseur: null,
       source: confiance == null ? "manuelle" : "ia",
       confiance,
       enAttenteLecture: horsLigne,
@@ -212,9 +177,23 @@ function VueScanner({ onEnregistre }) {
     if (apercu) URL.revokeObjectURL(apercu);
     setEtape("attente"); setApercu(null); setBlob(null); setAvis(null);
     setConfiance(null); setEditDlc(false); setDeplie(false); setHorsLigne(false);
-    setCandidats([]); setRattache(null);
     setForm({ produit:"", marque:"", gtin:"", lot:"", dlc:"" });
+    if (inputRef.current) inputRef.current.value = "";
   }
+
+  const ChampPhoto = ({ titre, aide }) => (
+    <label className="cible">
+      <input ref={inputRef} className="cible-input" type="file"
+        accept="image/*" capture="environment"
+        onChange={(ev)=>{
+          const f = ev.target.files?.[0];
+          if (f) depuisFichier(f).then(analyser).catch((e)=>setAvis({type:"erreur",texte:e.message}));
+        }} />
+      <span className="cible-icone">◉</span>
+      <span className="cible-titre">{titre}</span>
+      {aide && <span className="cible-aide">{aide}</span>}
+    </label>
+  );
 
   return (
     <div className="page">
@@ -231,7 +210,7 @@ function VueScanner({ onEnregistre }) {
 
       {etape === "attente" && (
         <div>
-          <ChampPhoto titre="Prendre la photo" aide="Étiquette bien à plat, sans reflet" onFichier={analyser} />
+          <ChampPhoto titre="Prendre la photo" aide="Étiquette bien à plat, sans reflet" />
           {avis && <div className={`avis avis-${avis.type}`} style={{ marginTop:16 }}>{avis.texte}</div>}
         </div>
       )}
@@ -277,29 +256,6 @@ function VueScanner({ onEnregistre }) {
             </div>
           </div>
 
-          {rattache && (
-            <div className="chip">
-              <span>{rattache.bl.fournisseur} · BL <span className="mono">{rattache.bl.numeroBl}</span></span>
-              <button onClick={()=>{ setRattache(null); setCandidats([]); }}
-                aria-label="Retirer le rattachement">✕</button>
-            </div>
-          )}
-
-          {!rattache && candidats.length > 1 && (
-            <div className="match">
-              <p className="match-eyebrow">Ce produit figure sur plusieurs livraisons</p>
-              {candidats.map((c) => (
-                <button key={c.ligne.id} className="match-choix" onClick={()=>setRattache(c)}>
-                  <span className="match-nom">{c.bl.fournisseur} · BL {c.bl.numeroBl}</span>
-                  <span className="match-meta">
-                    Reçu le {dateCourte(c.bl.dateReception)}
-                    {c.ligne.quantite ? ` · ${c.ligne.quantite} ${c.ligne.unite || ""}` : ""}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-
           <button className="btn btn-valider" onClick={enregistrer} disabled={!form.dlc}>
             {form.dlc ? "Valider" : "Renseigne la date pour valider"}
           </button>
@@ -309,42 +265,16 @@ function VueScanner({ onEnregistre }) {
 
           {deplie && (
             <div style={{ marginTop:14 }}>
-              <div className="champ">
-                <label className="label" htmlFor="f-produit">Produit</label>
-                <input id="f-produit" className="input" value={form.produit}
-                  onChange={(e)=>maj("produit", e.target.value)} placeholder="Ex. Jambon cuit torchon" />
-              </div>
-              <div className="champ">
-                <label className="label" htmlFor="f-marque">Marque</label>
-                <input id="f-marque" className="input" value={form.marque}
-                  onChange={(e)=>maj("marque", e.target.value)} placeholder="Ex. Madrange" />
-              </div>
-              <div className="champ">
-                <label className="label" htmlFor="f-four">Fournisseur</label>
-                <input id="f-four" className="input" disabled
-                  value={rattache ? rattache.bl.fournisseur : ""}
-                  placeholder="Renseigné par le bon de livraison" />
-                <p className="aide">
-                  Le fournisseur ne figure pas sur l'emballage. Il vient du BL,
-                  et c'est lui qui compte en cas de rappel produit.
-                </p>
-              </div>
-              <div className="champ">
-                <label className="label" htmlFor="f-gtin">Code GTIN</label>
-                <input id="f-gtin" className="input mono" value={form.gtin}
-                  inputMode="numeric"
-                  onChange={(e)=>{
-                    const v = e.target.value.replace(/\D/g,"");
-                    maj("gtin", v);
-                    chercherRattachement(v);
-                  }}
-                  placeholder="13 chiffres" />
-              </div>
-              <div className="champ">
-                <label className="label" htmlFor="f-lot">Numéro de lot</label>
-                <input id="f-lot" className="input mono" value={form.lot}
-                  onChange={(e)=>maj("lot", e.target.value)} placeholder="Ex. 6110118072" />
-              </div>
+              {[["produit","Produit","Ex. Jambon cuit torchon",false],
+                ["marque","Marque","Ex. Madrange",false],
+                ["gtin","Code GTIN","13 chiffres",true],
+                ["lot","Numéro de lot","Ex. 6110118072",true]].map(([k,l,p,m])=>(
+                <div className="champ" key={k}>
+                  <label className="label" htmlFor={`f-${k}`}>{l}</label>
+                  <input id={`f-${k}`} className={`input${m?" mono":""}`} value={form[k]}
+                    onChange={(e)=>maj(k, e.target.value)} placeholder={p} />
+                </div>
+              ))}
             </div>
           )}
 
@@ -357,246 +287,10 @@ function VueScanner({ onEnregistre }) {
           <div className="avis avis-ok">
             Enregistré. {dernier?.produit ? dernier.produit + " — " : ""}DLC {dateFR(dernier?.dlc)}.
           </div>
-          <ChampPhoto titre="Étiquette suivante" aide="Enchaîne sans repasser par l'accueil" onFichier={analyser} />
+          <ChampPhoto titre="Étiquette suivante" aide="Enchaîne sans repasser par l'accueil" />
           <button className="plier" onClick={recommencer}>Terminer</button>
         </div>
       )}
-    </div>
-  );
-}
-
-/* ------------------- Livraisons ------------------- */
-
-function VueLivraisons({ livraisons, etiquettes, onChange }) {
-  const [ouvert, setOuvert] = useState(null);
-  const [etape, setEtape] = useState("liste");   // liste | analyse | verification | detail
-  const [lu, setLu] = useState(null);
-  const [blob, setBlob] = useState(null);
-  const [apercu, setApercu] = useState(null);
-  const [avis, setAvis] = useState(null);
-  const [cibleAjout, setCibleAjout] = useState(null); // BL auquel ajouter une page
-
-  const bl = livraisons.find((l) => l.id === ouvert);
-
-  async function analyser(fichier, blExistant = null) {
-    setAvis(null); setCibleAjout(blExistant); setEtape("analyse");
-    try {
-      const dataUrl = await depuisFichier(fichier);
-      const { blob: b, base64 } = await compresserBl(dataUrl);
-      setApercu(URL.createObjectURL(b));
-      setBlob(b);
-      const d = await lireBonLivraison(base64);
-      if (!d.lignes?.length) {
-        setAvis({ type:"erreur", texte:"Aucune ligne détectée. Reprends la photo bien à plat, tableau entièrement visible." });
-        setEtape("liste");
-        return;
-      }
-      setLu(d);
-      setEtape("verification");
-    } catch (e) {
-      setAvis({ type:"erreur", texte:e.message });
-      setEtape("liste");
-    }
-  }
-
-  async function valider() {
-    try {
-      if (cibleAjout) {
-        await ajouterLignes(cibleAjout.id, lu.lignes);
-      } else {
-        await enregistrerLivraison(lu, lu.lignes, blob);
-      }
-      onChange();
-      setEtape("liste"); setLu(null); setBlob(null);
-      if (apercu) { URL.revokeObjectURL(apercu); setApercu(null); }
-      setAvis({ type:"ok", texte: cibleAjout ? "Page ajoutée au bon de livraison." : "Bon de livraison enregistré." });
-      setCibleAjout(null);
-    } catch (e) {
-      setAvis({ type:"erreur", texte:e.message });
-    }
-  }
-
-  async function supprimer(id) {
-    await supprimerLivraison(id);
-    onChange();
-    setOuvert(null);
-  }
-
-  /* --- Vérification après lecture --- */
-  if (etape === "analyse") {
-    return (
-      <div className="page">
-        <h1 className="page-titre">Lecture du bon</h1>
-        {apercu && <img src={apercu} alt="Bon de livraison" className="apercu" />}
-        <div className="avis avis-ok" style={{ marginTop:16 }}>
-          Extraction du tableau en cours… un BL prend plus de temps qu'une étiquette.
-        </div>
-      </div>
-    );
-  }
-
-  if (etape === "verification" && lu) {
-    const sansGtin = lu.lignes.filter((l) => !l.gtin).length;
-    return (
-      <div className="page">
-        <h1 className="page-titre">Vérifier le bon</h1>
-        <p className="page-sous">
-          {cibleAjout
-            ? `Page supplémentaire pour le BL ${cibleAjout.numeroBl}.`
-            : "Contrôle rapide avant enregistrement."}
-        </p>
-
-        {avis && <div className={`avis avis-${avis.type}`}>{avis.texte}</div>}
-
-        {!cibleAjout && (
-          <div className="entete-bl">
-            <div className="entete-four">{lu.fournisseur || "Fournisseur non identifié"}</div>
-            <div className="entete-meta">
-              BL <span className="mono">{lu.numeroBl || "—"}</span> · {dateCourte(lu.dateBl)}
-              {lu.montantHt != null && <> · <span className="mono">{lu.montantHt.toFixed(2)} €</span> HT</>}
-            </div>
-            {lu.pagesTotal > 1 && (
-              <div className="entete-pages">
-                Page {lu.page || "?"} sur {lu.pagesTotal} — tu pourras ajouter les suivantes après enregistrement.
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="groupe-titre">
-          <span>{lu.lignes.length} lignes lues</span>
-          {sansGtin > 0 && <span style={{ color:"#9A7B0A" }}>{sansGtin} sans GTIN</span>}
-        </div>
-
-        {sansGtin > 0 && (
-          <div className="avis avis-attention">
-            Les lignes sans GTIN ne pourront pas être rattachées automatiquement
-            à une étiquette. C'est normal pour les produits pesés ou en vrac.
-          </div>
-        )}
-
-        {lu.lignes.map((l, i) => (
-          <div className="ligne" key={i}>
-            <div className="ligne-pastille" style={{ background: l.gtin ? "#24705A" : "#D3DAD8" }} />
-            <div className="ligne-corps">
-              <div className="ligne-nom">{l.designation}</div>
-              <div className="ligne-meta">
-                {l.marque ? l.marque + " · " : ""}
-                <span className="mono">{l.gtin || "sans GTIN"}</span>
-                {l.quantite ? ` · ${l.quantite} ${l.unite || ""}` : ""}
-              </div>
-            </div>
-          </div>
-        ))}
-
-        <div style={{ padding:"18px 18px 0" }}>
-          <button className="btn btn-valider" onClick={valider}>
-            {cibleAjout ? "Ajouter ces lignes" : "Enregistrer le bon de livraison"}
-          </button>
-          <button className="plier" onClick={()=>{ setEtape("liste"); setLu(null); setCibleAjout(null); }}>
-            Annuler
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  /* --- Détail d'un BL --- */
-  if (bl) {
-    const cats = [...new Set(bl.lignes.map((l) => l.categorie || "Sans catégorie"))];
-    const scannees = bl.lignes.filter((l) => etiquettes.some((e) => e.ligneBlId === l.id)).length;
-    return (
-      <div>
-        <div className="page" style={{ paddingBottom:10 }}>
-          <button className="retour" onClick={()=>setOuvert(null)}>← Toutes les livraisons</button>
-          <h1 className="page-titre">{bl.fournisseur || "Fournisseur inconnu"}</h1>
-          <p className="page-sous" style={{ marginBottom:12 }}>
-            BL <span className="mono">{bl.numeroBl || "—"}</span> · reçu le {dateCourte(bl.dateReception)}
-            {bl.montantHt != null && <> · <span className="mono">{bl.montantHt.toFixed(2)} €</span> HT</>}
-            <br />
-            {scannees} ligne{scannees>1?"s":""} sur {bl.lignes.length} avec une étiquette scannée.
-          </p>
-          <ChampPhoto icone="▥" titre="Ajouter une page"
-            aide="Si le bon fait plusieurs pages"
-            onFichier={(f)=>analyser(f, bl)} />
-        </div>
-
-        {cats.map((cat) => (
-          <div key={cat}>
-            <div className="groupe-titre"><span>{cat}</span></div>
-            {bl.lignes.filter((l)=>(l.categorie || "Sans catégorie")===cat).map((l) => {
-              const liees = etiquettes.filter((e) => e.ligneBlId === l.id);
-              const suivi = liees.length > 0;
-              return (
-                <div className="ligne" key={l.id}>
-                  <div className="ligne-pastille" style={{ background: suivi ? "#24705A" : "#D3DAD8" }} />
-                  <div className="ligne-corps">
-                    <div className="ligne-nom">{l.designation}</div>
-                    <div className="ligne-meta">
-                      {l.marque ? l.marque + " · " : ""}
-                      <span className="mono">{l.gtin || "sans GTIN"}</span>
-                      {l.quantite ? ` · ${l.quantite} ${l.unite || ""}` : ""}
-                      {suivi && liees[0].dlc && <> · DLC <span className="mono">{dateFR(liees[0].dlc)}</span></>}
-                    </div>
-                  </div>
-                  <div className="ligne-etat" style={{ color: suivi ? "#24705A" : "var(--sourd)" }}>
-                    {suivi ? "Scanné" : "Non scanné"}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-
-        <div style={{ padding:"22px 18px 0" }}>
-          <button className="plier" onClick={()=>supprimer(bl.id)}>Supprimer ce bon de livraison</button>
-        </div>
-        <div style={{ height:20 }} />
-      </div>
-    );
-  }
-
-  /* --- Liste --- */
-  return (
-    <div>
-      <div className="page">
-        <h1 className="page-titre">Livraisons</h1>
-        <p className="page-sous">
-          Le bon de livraison remplit le fournisseur au moment du scan.
-          Rien n'oblige à scanner toutes les lignes.
-        </p>
-        {avis && <div className={`avis avis-${avis.type}`}>{avis.texte}</div>}
-        <ChampPhoto icone="▥" titre="Scanner un bon de livraison"
-          aide="Tableau entièrement visible, feuille bien à plat"
-          onFichier={(f)=>analyser(f)} />
-      </div>
-
-      {livraisons.length === 0 && (
-        <div className="vide">
-          <p className="vide-titre">Aucune livraison</p>
-          <p className="vide-texte">
-            Scanne le bon à la réception : 30 secondes qui évitent de retaper
-            le fournisseur à chaque étiquette.
-          </p>
-        </div>
-      )}
-
-      {livraisons.map((bl) => {
-        const n = bl.lignes.filter((l) => etiquettes.some((e) => e.ligneBlId === l.id)).length;
-        return (
-          <button key={bl.id} className="carte-bl" onClick={()=>setOuvert(bl.id)}>
-            <div className="bl-four">{bl.fournisseur || "Fournisseur inconnu"}</div>
-            <div className="bl-meta">
-              BL <span className="mono">{bl.numeroBl || "—"}</span> · reçu le {dateCourte(bl.dateReception)}
-            </div>
-            <div className="bl-pied">
-              <span className="mono">{bl.lignes.length} lignes</span>
-              <span style={{ color:"var(--sourd)" }}>{n} avec étiquette</span>
-            </div>
-          </button>
-        );
-      })}
-      <div style={{ height:20 }} />
     </div>
   );
 }
@@ -608,7 +302,7 @@ function VueHistorique({ etiquettes, onClic }) {
   const parJour = useMemo(() => {
     const t = q.trim().toLowerCase();
     const f = etiquettes.filter((e) => !t ||
-      [e.produit, e.marque, e.fournisseur, e.lot, e.gtin].some((v)=>(v||"").toLowerCase().includes(t)));
+      [e.produit, e.marque, e.lot, e.gtin].some((v)=>(v||"").toLowerCase().includes(t)));
     const map = new Map();
     f.forEach((e) => { if(!map.has(e.dateScan)) map.set(e.dateScan, []); map.get(e.dateScan).push(e); });
     return [...map.entries()].sort((a,b)=>b[0].localeCompare(a[0]));
@@ -639,9 +333,9 @@ function VueHistorique({ etiquettes, onClic }) {
   );
 }
 
-/* ------------------- Détail d'une étiquette ------------------- */
+/* ------------------- Détail ------------------- */
 
-function Detail({ e, livraisons, onFermer }) {
+function Detail({ e, onFermer }) {
   const [url, setUrl] = useState(null);
   useEffect(() => {
     let vivant = true, courant = null;
@@ -650,9 +344,6 @@ function Detail({ e, livraisons, onFermer }) {
     });
     return () => { vivant = false; if (courant) URL.revokeObjectURL(courant); };
   }, [e.id]);
-
-  const bl = e.livraisonId ? livraisons.find((l) => l.id === e.livraisonId) : null;
-  const ligne = bl?.lignes.find((l) => l.id === e.ligneBlId);
 
   return (
     <div className="voile" onClick={onFermer}>
@@ -663,31 +354,17 @@ function Detail({ e, livraisons, onFermer }) {
           <h2 className="panneau-titre">{e.produit || "Produit non identifié"}</h2>
           {[
             ["Marque", e.marque || "—", false],
-            ["Fournisseur", e.fournisseur || "Non renseigné", false],
             ["Code GTIN", e.gtin || "—", true],
             ["Numéro de lot", e.lot || "—", true],
             ["DLC", dateFR(e.dlc), true],
             ["Scanné le", dateLongue(e.dateScan), false],
             ["Saisie", { ia:"Lue automatiquement", manuelle:"Saisie à la main" }[e.source] || "—", false],
-            ["Rattachement", { gtin:"Par code GTIN", aucun:"Aucun" }[e.rattachement] || "Aucun", false],
           ].map(([k,v,m]) => (
             <div className="ligne-detail" key={k}>
               <span>{k}</span>
               <span className={m?"mono":""} style={{ fontWeight:600, textAlign:"right" }}>{v}</span>
             </div>
           ))}
-          {bl && (
-            <div className="encart-bl">
-              <p className="match-eyebrow">Bon de livraison</p>
-              <div style={{ fontSize:13, lineHeight:1.6 }}>
-                {ligne?.designation || "Ligne introuvable"}<br />
-                <span style={{ color:"var(--sourd)" }}>
-                  {bl.fournisseur} · BL <span className="mono">{bl.numeroBl}</span> ·
-                  reçu le {dateCourte(bl.dateReception)}
-                </span>
-              </div>
-            </div>
-          )}
           <button className="btn" style={{ marginTop:20 }} onClick={onFermer}>Fermer</button>
         </div>
       </div>
@@ -700,40 +377,37 @@ function Detail({ e, livraisons, onFermer }) {
 export default function App() {
   const [onglet, setOnglet] = useState("alertes");
   const [etiquettes, setEtiquettes] = useState([]);
-  const [livraisons, setLivraisons] = useState([]);
   const [detail, setDetail] = useState(null);
   const [chargement, setChargement] = useState(true);
   const [enLigne, setEnLigne] = useState(navigator.onLine);
   const [attente, setAttente] = useState(0);
-  const [erreur, setErreur] = useState(null);
+  const [stockage, setStockage] = useState(null);
 
   const recharger = useCallback(async () => {
-    try {
-      setEtiquettes(await listerEtiquettes());
-      setLivraisons(await listerLivraisons());
-      setAttente((await listerAttente()).length);
-      setErreur(null);
-    } catch (e) {
-      setErreur(e.message);
-    }
+    setEtiquettes(await listerEtiquettes());
+    setAttente((await listerAttente()).length);
     setChargement(false);
   }, []);
 
-  useEffect(() => { demanderPersistance(); recharger(); }, [recharger]);
+  useEffect(() => {
+    demanderPersistance();
+    espace().then(setStockage);
+    recharger();
+  }, [recharger]);
 
   useEffect(() => {
-    const revenu = async () => {
+    const enLigneMaj = async () => {
       setEnLigne(true);
       const r = await traiterAttente();
       if (r.traitees) recharger(); else setAttente(r.restantes);
     };
-    const parti = () => setEnLigne(false);
-    window.addEventListener("online", revenu);
-    window.addEventListener("offline", parti);
-    if (navigator.onLine) revenu();
+    const horsLigne = () => setEnLigne(false);
+    window.addEventListener("online", enLigneMaj);
+    window.addEventListener("offline", horsLigne);
+    if (navigator.onLine) enLigneMaj();
     return () => {
-      window.removeEventListener("online", revenu);
-      window.removeEventListener("offline", parti);
+      window.removeEventListener("online", enLigneMaj);
+      window.removeEventListener("offline", horsLigne);
     };
   }, [recharger]);
 
@@ -742,7 +416,6 @@ export default function App() {
   const onglets = [
     { cle:"alertes",    icone:"◈", txt:"Alertes",    pastille:urgents },
     { cle:"scanner",    icone:"◉", txt:"Scanner",    pastille:0 },
-    { cle:"livraisons", icone:"▥", txt:"Livraisons", pastille:0 },
     { cle:"historique", icone:"▤", txt:"Historique", pastille:0 },
   ];
 
@@ -760,7 +433,6 @@ export default function App() {
           {attente} étiquette{attente>1?"s":""} en attente de lecture automatique.
         </div>
       )}
-      {erreur && <div className="page"><div className="avis avis-erreur">{erreur}</div></div>}
 
       {chargement ? (
         <div className="vide"><p className="vide-texte">Chargement…</p></div>
@@ -768,12 +440,11 @@ export default function App() {
         <>
           {onglet === "alertes" && <VueAlertes etiquettes={etiquettes} onClic={setDetail} />}
           {onglet === "scanner" && <VueScanner onEnregistre={recharger} />}
-          {onglet === "livraisons" && <VueLivraisons livraisons={livraisons} etiquettes={etiquettes} onChange={recharger} />}
           {onglet === "historique" && <VueHistorique etiquettes={etiquettes} onClic={setDetail} />}
         </>
       )}
 
-      {detail && <Detail e={detail} livraisons={livraisons} onFermer={()=>setDetail(null)} />}
+      {detail && <Detail e={detail} onFermer={()=>setDetail(null)} />}
 
       <nav className="nav">
         {onglets.map((o)=>(
