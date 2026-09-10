@@ -1,8 +1,8 @@
-/* Appel à l'Edge Function et gestion du hors-ligne. */
+/* Appels à l'Edge Function et gestion du hors-ligne. */
 
 import {
   listerAttente, retirerDeLAttente, incrementerTentative,
-  corrigerEtiquette, photoDe,
+  corrigerEtiquette, photoDe, etiquetteDe,
 } from "./stockage.js";
 
 const URL_FONCTION = import.meta.env.VITE_URL_EXTRACTION || "";
@@ -10,34 +10,92 @@ const JETON = import.meta.env.VITE_JETON_APP || "";
 
 export const configuree = () => !!URL_FONCTION;
 
-/* Compression : une étiquette reste parfaitement lisible à 150 Ko.
-   Envoyer les 4 Mo du capteur coûte du temps et du forfait pour rien. */
-export function compresser(source, maxPx = 1400, qualite = 0.82) {
+/* Compression.
+
+   Point critique sur Android : une photo de 12 Mpx convertie en data URL
+   puis décodée entièrement occupe ~50 Mo de bitmap plus ~5 Mo de chaîne
+   base64. Le navigateur tue l'onglet sans prévenir — l'application
+   semble « planter et se fermer ».
+
+   On passe donc par createImageBitmap avec resizeWidth : le décodeur
+   réduit l'image pendant le décodage, sans jamais matérialiser la
+   pleine résolution côté JS. Repli sur l'ancienne méthode si
+   indisponible. */
+
+function versBlobEtBase64(canvas, qualite) {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const r = Math.min(1, maxPx / Math.max(img.width, img.height));
-      const c = document.createElement("canvas");
-      c.width = Math.round(img.width * r);
-      c.height = Math.round(img.height * r);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      c.toBlob(
-        (blob) => {
-          if (!blob) return reject(new Error("Compression impossible."));
-          const lecteur = new FileReader();
-          lecteur.onload = () => resolve({ blob, base64: lecteur.result.split(",")[1] });
-          lecteur.onerror = () => reject(new Error("Lecture impossible."));
-          lecteur.readAsDataURL(blob);
-        },
-        "image/jpeg",
-        qualite,
-      );
-    };
-    img.onerror = () => reject(new Error("Image illisible."));
-    img.src = source;
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return reject(new Error("Compression impossible."));
+        const l = new FileReader();
+        l.onload = () => resolve({ blob, base64: l.result.split(",")[1] });
+        l.onerror = () => reject(new Error("Lecture impossible."));
+        l.readAsDataURL(blob);
+      },
+      "image/jpeg",
+      qualite,
+    );
   });
 }
 
+function dessiner(source, largeur, hauteur) {
+  const c = document.createElement("canvas");
+  c.width = largeur;
+  c.height = hauteur;
+  c.getContext("2d").drawImage(source, 0, 0, largeur, hauteur);
+  return c;
+}
+
+/* Repli : décodage classique. Réservé aux petits fichiers. */
+function compresserParImage(fichier, maxPx, qualite) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(fichier);
+    const img = new Image();
+    img.onload = () => {
+      const r = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const c = dessiner(img, Math.round(img.width * r), Math.round(img.height * r));
+      URL.revokeObjectURL(url);
+      versBlobEtBase64(c, qualite).then(resolve, reject);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Image illisible.")); };
+    img.src = url;
+  });
+}
+
+export async function compresser(fichier, maxPx = 1400, qualite = 0.82) {
+  if (!fichier) throw new Error("Aucune image reçue.");
+
+  // En dessous de 800 Ko, le décodage direct ne pose pas de problème
+  // et évite d'agrandir inutilement une petite image.
+  const gros = fichier.size > 800 * 1024;
+
+  if (gros && typeof createImageBitmap === "function") {
+    let bitmap;
+    try {
+      // resizeWidth seul : la hauteur suit, le rapport est préservé.
+      bitmap = await createImageBitmap(fichier, {
+        resizeWidth: maxPx,
+        resizeQuality: "high",
+      });
+      const c = dessiner(bitmap, bitmap.width, bitmap.height);
+      bitmap.close();
+      return await versBlobEtBase64(c, qualite);
+    } catch (e) {
+      if (bitmap) bitmap.close();
+      // On tente le repli plutôt que d'échouer : certains formats
+      // (HEIC notamment) ne passent pas par createImageBitmap.
+      void e;
+    }
+  }
+
+  return compresserParImage(fichier, maxPx, qualite);
+}
+
+/* Un BL demande plus de définition : ses colonnes de chiffres sont fines,
+   et un GTIN mal lu casse tout le rattachement. */
+export const compresserBl = (fichier) => compresser(fichier, 2000, 0.88);
+
+/* Conservé pour le collage d'image depuis le presse-papier. */
 export const depuisFichier = (fichier) => new Promise((resolve, reject) => {
   const l = new FileReader();
   l.onload = () => resolve(l.result);
@@ -45,7 +103,9 @@ export const depuisFichier = (fichier) => new Promise((resolve, reject) => {
   l.readAsDataURL(fichier);
 });
 
-export async function lireEtiquette(base64) {
+/* ------------------- Appel générique ------------------- */
+
+async function appeler(base64, type, delai) {
   if (!URL_FONCTION) {
     throw new Error("Service de lecture non configuré. Saisis les informations à la main.");
   }
@@ -56,7 +116,7 @@ export async function lireEtiquette(base64) {
   }
 
   const controleur = new AbortController();
-  const minuterie = setTimeout(() => controleur.abort(), 30000);
+  const minuterie = setTimeout(() => controleur.abort(), delai);
 
   try {
     const reponse = await fetch(URL_FONCTION, {
@@ -65,7 +125,7 @@ export async function lireEtiquette(base64) {
         "content-type": "application/json",
         ...(JETON ? { authorization: `Bearer ${JETON}` } : {}),
       },
-      body: JSON.stringify({ image: base64 }),
+      body: JSON.stringify({ image: base64, type }),
       signal: controleur.signal,
     });
     const data = await reponse.json();
@@ -88,9 +148,17 @@ export async function lireEtiquette(base64) {
   }
 }
 
-/* Reprend les étiquettes photographiées hors réseau.
-   Ne touche jamais à une DLC déjà saisie à la main : la correction
-   humaine prime toujours sur la lecture automatique. */
+export const lireEtiquette = (base64) => appeler(base64, "etiquette", 30000);
+
+/* Un BL demande plus de temps : 25 lignes à extraire, pas 5 champs. */
+export const lireBonLivraison = (base64) => appeler(base64, "bl", 90000);
+
+/* ------------------- Reprise de la file d'attente -------------------
+   Complète les étiquettes photographiées hors réseau. Ne touche jamais
+   à ce qui a été saisi à la main : la correction humaine prime toujours
+   sur la lecture automatique.
+   -------------------------------------------------------------------- */
+
 export async function traiterAttente() {
   if (!navigator.onLine || !URL_FONCTION) return { traitees: 0, restantes: 0 };
 
@@ -111,14 +179,16 @@ export async function traiterAttente() {
       });
 
       const lu = await lireEtiquette(base64);
-      const champs = {
-        produit: lu.produit, marque: lu.marque, gtin: lu.gtin,
-        confiance: lu.confiance, source: "ia",
-      };
-      // La DLC saisie à la main ne se fait jamais écraser
-      const actuelle = (await listerAttente()).find((a) => a.id === item.id);
-      if (actuelle && lu.dlc) champs.dlcProposee = lu.dlc;
-      if (lu.lot) champs.lotPropose = lu.lot;
+      const actuelle = await etiquetteDe(item.id);
+      if (!actuelle) { await retirerDeLAttente(item.id); continue; }
+
+      // On ne remplit que ce qui est vide. Ce qui a été saisi en cuisine
+      // — la DLC en particulier — n'est jamais écrasé.
+      const champs = { enAttenteLecture: false, confiance: lu.confiance };
+      for (const cle of ["produit", "marque", "gtin", "lot", "dlc"]) {
+        if (!actuelle[cle] && lu[cle]) champs[cle] = lu[cle];
+      }
+      if (!actuelle.dlc && lu.dlc) champs.source = "ia";
 
       await corrigerEtiquette(item.id, champs);
       await retirerDeLAttente(item.id);
