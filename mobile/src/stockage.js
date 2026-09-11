@@ -197,6 +197,23 @@ export async function candidatsParGtin(gtin, jours = 30) {
   return trouves;
 }
 
+/* Toutes les lignes des livraisons récentes, à plat. Sert au
+   rattachement manuel : la majorité des fournisseurs n'imprime aucun
+   GTIN, le rapprochement automatique est alors impossible. */
+export async function lignesRecentes(jours = 30) {
+  const limite = new Date();
+  limite.setDate(limite.getDate() - jours);
+  const limiteIso = limite.toISOString().slice(0, 10);
+
+  const livraisons = await listerLivraisons();
+  const plates = [];
+  for (const bl of livraisons) {
+    if (bl.dateReception < limiteIso) continue;
+    for (const ligne of bl.lignes) plates.push({ ligne, bl });
+  }
+  return plates;
+}
+
 /* ------------------- File d'attente ------------------- */
 
 export async function mettreEnAttente(etiquetteId) {
