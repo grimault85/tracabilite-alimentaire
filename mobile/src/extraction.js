@@ -55,7 +55,9 @@ function compresserParImage(fichier, maxPx, qualite) {
       const r = Math.min(1, maxPx / Math.max(img.width, img.height));
       const c = dessiner(img, Math.round(img.width * r), Math.round(img.height * r));
       URL.revokeObjectURL(url);
-      versBlobEtBase64(c, qualite).then(resolve, reject);
+      versBlobEtBase64(c, qualite)
+        .then((res) => resolve({ ...res, largeur: c.width, hauteur: c.height }))
+        .catch(reject);
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Image illisible.")); };
     img.src = url;
@@ -72,14 +74,18 @@ export async function compresser(fichier, maxPx = 1400, qualite = 0.82) {
   if (gros && typeof createImageBitmap === "function") {
     let bitmap;
     try {
-      // resizeWidth seul : la hauteur suit, le rapport est préservé.
       bitmap = await createImageBitmap(fichier, {
         resizeWidth: maxPx,
         resizeQuality: "high",
+        // Sans cela, une photo prise en portrait peut arriver couchée :
+        // le modèle lit alors un tableau tourné à 90° et ne trouve rien.
+        imageOrientation: "from-image",
       });
       const c = dessiner(bitmap, bitmap.width, bitmap.height);
+      const dimensions = { largeur: bitmap.width, hauteur: bitmap.height };
       bitmap.close();
-      return await versBlobEtBase64(c, qualite);
+      const r = await versBlobEtBase64(c, qualite);
+      return { ...r, ...dimensions };
     } catch (e) {
       if (bitmap) bitmap.close();
       // On tente le repli plutôt que d'échouer : certains formats
@@ -91,9 +97,11 @@ export async function compresser(fichier, maxPx = 1400, qualite = 0.82) {
   return compresserParImage(fichier, maxPx, qualite);
 }
 
-/* Un BL demande plus de définition : ses colonnes de chiffres sont fines,
-   et un GTIN mal lu casse tout le rattachement. */
-export const compresserBl = (fichier) => compresser(fichier, 2000, 0.88);
+/* L'API vision ramène toute image à ~1568 px sur le grand côté. Envoyer
+   davantage ne sert à rien : ce qui compte est la part de l'image
+   occupée par le tableau. D'où la consigne de cadrer serré plutôt que
+   de photographier la feuille entière. */
+export const compresserBl = (fichier) => compresser(fichier, 1600, 0.9);
 
 /* Conservé pour le collage d'image depuis le presse-papier. */
 export const depuisFichier = (fichier) => new Promise((resolve, reject) => {

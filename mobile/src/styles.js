@@ -117,6 +117,7 @@ html, body, #racine { margin: 0; }
 
 .entete-bl { background:var(--carte); border:1px solid var(--trait); border-radius:3px; padding:15px; margin-bottom:6px; }
 .entete-four { font-size:17px; font-weight:600; }
+.entete-type { display:inline-block; font-size:10px; letter-spacing:.1em; text-transform:uppercase; font-weight:600; color:#6B5606; background:#FDF4E0; border-radius:2px; padding:2px 6px; margin-top:6px; }
 .entete-meta { font-size:12px; color:var(--sourd); margin-top:5px; }
 .entete-pages { font-size:12px; color:#6B5606; background:#FDF4E0; border-radius:2px; padding:8px 10px; margin-top:10px; line-height:1.45; }
 
@@ -147,6 +148,8 @@ html, body, #racine { margin: 0; }
 }
 .btn:disabled { background:#97A5A3; }
 .btn-valider { padding:20px; font-size:17px; }
+.btn-fant { background:transparent; color:var(--sourd); border:1px solid var(--trait); }
+.btn-fant:active { background:var(--papier); color:var(--encre); }
 .plier {
   display:block; width:100%; background:none; border:none; padding:15px 0 4px;
   font-family:inherit; font-size:13px; color:var(--sourd); cursor:pointer; text-decoration:underline;
