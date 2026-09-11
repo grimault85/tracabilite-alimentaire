@@ -42,34 +42,72 @@ Réponds UNIQUEMENT par un objet JSON, sans texte autour ni balises markdown :
  "dlc":"AAAA-MM-JJ"|null,"source_dlc":"libelle"|"gs1"|null,"confiance":0..1,"remarque":string|null}`;
 
 const CONSIGNE_BL = (aujourdhui: string) =>
-  `Tu lis un bon de livraison de fournisseur pour la restauration.
+  `Tu lis un document de livraison fournisseur pour la restauration.
 Nous sommes le ${aujourdhui}.
 
-RÈGLES
-1. En-tête : le fournisseur est l'émetteur du document (Transgourmet, Metro,
-   Pomona, Sysco…), pas le restaurant destinataire. Le numéro de BL suit
-   souvent la mention "BL - N°" ou "Bon de livraison".
-2. Tableau : une ligne par article. Ne retiens JAMAIS les lignes de
-   sous-total, total, TVA, ni les en-têtes de colonnes.
-3. Ne confonds pas les colonnes :
-   - "code_article" = référence interne du fournisseur, 5 à 7 chiffres
-   - "gtin" = code-barres produit, 13 ou 14 chiffres, dans sa propre colonne
-   Si tu hésites entre les deux, le GTIN est le plus long.
-4. Les catégories apparaissent en intertitres dans le tableau
-   (Ambiant, Frais, Surgelé). Reporte-les sur chaque ligne concernée.
-5. "marque" est une colonne du tableau. Elle est souvent vide : mets null,
-   ne la déduis pas de la désignation.
-6. Si une ligne est coupée, floue ou ambiguë, mets null sur les champs
-   douteux plutôt que de deviner. Un GTIN inventé casse la traçabilité.
-7. Un BL fait souvent plusieurs pages : ne retiens que ce qui est visible
-   sur cette image. Indique le numéro de page si tu le vois.
+Ce peut être un bon de livraison, une facture de livraison ou un devis.
+Les mises en page varient énormément d'un fournisseur à l'autre :
+ne suppose l'existence d'aucune colonne.
+
+EN-TÊTE
+- "fournisseur" = l'émetteur du document : logo, en-tête, adresse
+  d'expédition. Le restaurant est le DESTINATAIRE ("Adresse de
+  livraison", "Livré à", "Client"). Ne les confonds jamais.
+- "numero" = le numéro du document, quel que soit son libellé :
+  "BL - N°", "BON DE LIVRAISON N°", "FACTURE LIVRAISON N°", "Numéro".
+- "date" = date du document ou de livraison, pas la date de validité
+  ni l'échéance de paiement.
+
+LIGNES
+- Une ligne par marchandise, dans l'ordre du document.
+- Les intitulés de section ne sont PAS des lignes : Frais, Surgelé,
+  Ambiant, CHARCUTERIES, FROMAGES, PÂTES, ANTIPASTI, MAREE…
+  Reporte-les dans "categorie" sur chaque ligne concernée.
+- Exclus tout ce qui n'est pas une marchandise : sous-total, total,
+  TVA, net à payer, nombre total, surcoût ou surcharge énergie,
+  frais de port, transport, palettes, consignes, éco-participation.
+- Une désignation peut courir sur deux lignes : recompose-la.
+- Des informations complémentaires apparaissent souvent SOUS la
+  désignation, en plus petit : numéro de lot ("N° de Lot : 02335156"),
+  date limite ("DLC/DDM : 11/09/2026"), poids, origine, nom
+  scientifique. Rattache-les à la ligne au-dessus, ne les traite
+  jamais comme une ligne à part.
+
+COLONNES
+- "gtin" : code-barres produit, 8 à 14 chiffres, dans une colonne qui
+  lui est propre et porte souvent l'intitulé GTIN ou EAN.
+  BEAUCOUP de fournisseurs n'en ont pas. Dans ce cas mets null : c'est
+  normal et attendu. Ne recopie JAMAIS le code article à la place, et
+  n'invente pas un code à partir d'un autre nombre de la ligne.
+- "code_article" : référence interne du fournisseur. Numérique
+  (340160, 52583) ou alphanumérique (SOR.JCN.6500, LE.MOP.3000).
+- "marque" : uniquement si une colonne marque existe dans le tableau.
+  Ne la déduis jamais de la désignation.
+- "quantite" : quantité livrée ou facturée, en nombre décimal
+  (la virgule française devient un point : 57,274 → 57.274).
+- "unite" : KG, COL, PCE, UNITE, SAC, BQ, SHT, PLQ, LOT…
+- "lot" : le numéro de lot s'il figure sur la ligne ou juste en dessous.
+- "dlc" : la date limite si le document la porte ("DLC", "DLC/DDM"),
+  au format AAAA-MM-JJ. Rare mais précieux, ne l'invente pas.
+
+RÈGLE GÉNÉRALE
+Dans le doute, mets null. Un GTIN, un lot ou une date inventés cassent
+la traçabilité au moment précis où elle doit servir.
+
+SI TU NE PEUX PAS LIRE LE TABLEAU
+Renvoie "lignes": [] et explique précisément pourquoi dans "remarque" :
+texte trop petit, image floue, tableau coupé, document tourné, reflet.
+Cette remarque est affichée à l'utilisateur pour qu'il reprenne la photo :
+sois concret et bref. N'invente jamais de lignes plausibles pour
+« remplir » la réponse.
 
 Réponds UNIQUEMENT par un objet JSON, sans texte autour ni balises markdown :
-{"fournisseur":string|null,"numero_bl":string|null,"date_bl":"AAAA-MM-JJ"|null,
+{"type_document":"bon_livraison"|"facture"|"devis"|null,
+ "fournisseur":string|null,"numero_bl":string|null,"date_bl":"AAAA-MM-JJ"|null,
  "montant_ht":number|null,"page":number|null,"pages_total":number|null,
  "lignes":[{"categorie":string|null,"code_article":string|null,"designation":string,
             "marque":string|null,"gtin":string|null,"quantite":number|null,
-            "unite":string|null}],
+            "unite":string|null,"lot":string|null,"dlc":"AAAA-MM-JJ"|null}],
  "confiance":0..1,"remarque":string|null}`;
 
 Deno.serve(async (requete) => {
@@ -158,8 +196,13 @@ Deno.serve(async (requete) => {
       });
     }
 
-    // Nettoyage des lignes de BL : on écarte ce qui n'est pas un article
-    const rebut = /^(sous[- ]?total|total|tva|montant|net a payer)/i;
+    // Nettoyage : on écarte tout ce qui n'est pas une marchandise.
+    const rebut = new RegExp(
+      "^(sous[- ]?total|total|tva|montant|net a payer|net à payer|nombre total" +
+      "|surcout|surcoût|surcharge|frais de port|frais de livraison|transport" +
+      "|palette|consigne|eco[- ]?participation|éco[- ]?participation)",
+      "i",
+    );
     const lignes = (Array.isArray(lu.lignes) ? lu.lignes : [])
       .filter((l: { designation?: string }) => l?.designation && !rebut.test(l.designation.trim()))
       .map((l: Record<string, unknown>) => {
@@ -174,10 +217,13 @@ Deno.serve(async (requete) => {
           gtin: [8, 12, 13, 14].includes(gtin.length) ? gtin : null,
           quantite: typeof l.quantite === "number" ? l.quantite : null,
           unite: (l.unite as string) || null,
+          lot: (l.lot as string) || null,
+          dlc: dateValide(l.dlc) || null,
         };
       });
 
     return json({
+      typeDocument: lu.type_document || null,
       fournisseur: lu.fournisseur || "",
       numeroBl: lu.numero_bl || "",
       dateBl: dateValide(lu.date_bl),
